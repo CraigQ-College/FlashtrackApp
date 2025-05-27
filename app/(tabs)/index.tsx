@@ -722,7 +722,7 @@ export default function HomeScreen() {
         <ScrollView contentContainerStyle={styles.consentContainer}>
           <Image 
             source={require('../../assets/images/logo.png')} 
-            style={styles.logo}
+            style={[styles.logo, { marginTop: 5 }]}
             resizeMode="contain"
           />
           <View style={styles.consentBox}>
@@ -775,7 +775,7 @@ export default function HomeScreen() {
           <View style={styles.mainContainer}>
             <Image 
               source={require('../../assets/images/logo.png')} 
-              style={styles.logo}
+              style={[styles.logo, { marginTop: 5 }]}
               resizeMode="contain"
             />
             <ScrollView 
@@ -894,7 +894,7 @@ const styles = StyleSheet.create({
     width: 250,
     height: 250,
     marginTop: -100,
-    marginBottom: 30,
+    marginBottom: -30,
     alignSelf: 'center',
   },
   messageContainer: {
@@ -917,7 +917,7 @@ const styles = StyleSheet.create({
     color: '#4FC3F7',
     fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 10,
+    marginBottom: 25,
   },
   timeSegmentsContainer: {
     flexDirection: 'row',
@@ -940,9 +940,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   conductorImage: {
-    width: 100,
-    height: 100,
-    marginTop: 20,
+    width: 200,
+    height: 150,
   },
   accessCodeContainer: {
     flex: 1,
@@ -1075,7 +1074,7 @@ const styles = StyleSheet.create({
   },
   menuButton: {
     position: 'absolute',
-    top: 40,
+    top: 60,
     right: 20,
     zIndex: 1,
     padding: 8,
@@ -1163,6 +1162,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     alignItems: 'center',
     padding: 20,
+    paddingTop: 0,
     paddingBottom: 100,
     width: '100%',
   },
