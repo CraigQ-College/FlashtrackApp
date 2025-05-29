@@ -631,7 +631,7 @@ export default function HomeScreen() {
           <View style={styles.accessCodeTop}>
             <Image 
               source={require('../../assets/images/logo.png')} 
-              style={styles.logo}
+              style={[styles.logo, { marginTop: 0 }]}
               resizeMode="contain"
             />
             <Text style={styles.welcomeText}>Welcome to FlashTrack</Text>
@@ -676,15 +676,15 @@ export default function HomeScreen() {
           <View style={styles.accessCodeTop}>
             <Image 
               source={require('../../assets/images/logo.png')} 
-              style={styles.logo}
+              style={[styles.logo, { marginTop: 0 }]}
               resizeMode="contain"
             />
-            <Text style={styles.welcomeText}>Create Your Unique Code</Text>
+            <Text style={[styles.welcomeText, { marginTop: 60 }]}>Create Your Unique Code</Text>
             <Text style={styles.accessCodeLabel}>Please enter a unique 4-digit code for your participation:</Text>
             <TextInput
               style={[
                 styles.accessCodeInput,
-                { width: 200, marginBottom: 10 }, // adjust margin for new message
+                { width: 200, marginBottom: 10 },
                 userUniqueCodeError ? styles.accessCodeInputError : null
               ]}
               value={userUniqueCode}
@@ -1211,5 +1211,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 2,
     borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  accessCodeContainerCentered: {
+    flex: 1,
+    backgroundColor: '#000000',
+    justifyContent: 'center',
+  },
+  accessCodeTopCentered: {
+    alignItems: 'center',
+    paddingTop: 0,
   },
 });
