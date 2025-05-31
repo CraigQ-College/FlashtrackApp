@@ -1,23 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Alert, Image, SafeAreaView, Linking, TextInput, ScrollView, Modal, BackHandler, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Alert, Image, SafeAreaView, Linking, TextInput, ScrollView, Modal, BackHandler, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api, Question, TimeSegment } from '../../services/api';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import * as Notifications from 'expo-notifications';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { uniqueCodeService } from '../../services/uniqueCode';
-
-// Configure notifications
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+import { scheduleDailyNotifications, scheduleTestNotification } from '../../services/notifications';
 
 interface FlashbackResponse {
   created_at: string;
@@ -57,7 +46,6 @@ export default function HomeScreen() {
   const [selectedNumbers, setSelectedNumbers] = useState<{ [key: number]: string }>({});
   const [questions, setQuestions] = useState<Question[]>([]);
   const [isLoadingQuestions, setIsLoadingQuestions] = useState(true);
-  const [isNotificationResponse, setIsNotificationResponse] = useState(false);
   const [uniqueCode, setUniqueCode] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hasConsented, setHasConsented] = useState(false);
@@ -86,6 +74,7 @@ export default function HomeScreen() {
       if (code) {
         setUniqueCode(code);
         setHasAccessCode(true);
+        setHasOnboarded(true);
       }
     } catch (error) {
       console.error('Error checking unique code:', error);
@@ -114,7 +103,7 @@ export default function HomeScreen() {
     }
   };
 
-  // New handler for onboarding unique code
+  // Update handleUserUniqueCodeSubmit to schedule notifications after onboarding
   const handleUserUniqueCodeSubmit = async () => {
     if (!userUniqueCode || userUniqueCode.length < 4) {
       setUserUniqueCodeError('Please enter a 4-digit code.');
@@ -131,6 +120,9 @@ export default function HomeScreen() {
       setUniqueCode(userUniqueCode);
       setHasOnboarded(true);
       setUserUniqueCodeError('');
+      
+      // Schedule notifications after successful unique code registration
+      await scheduleDailyNotifications();
     } catch (error) {
       setUserUniqueCodeError('Error saving code. Please try again.');
     }
@@ -265,76 +257,12 @@ export default function HomeScreen() {
     }
   };
 
-  // Add function to load active questions
-  const loadActiveQuestions = async () => {
-    try {
-      const activeQuestions = await api.getActiveQuestions();
-      setQuestions(activeQuestions);
-      // Initialize selected numbers with empty strings
-      const initialNumbers = activeQuestions.reduce((acc, q) => {
-        acc[q.id] = '';
-        return acc;
-      }, {} as { [key: number]: string });
-      setSelectedNumbers(initialNumbers);
-    } catch (error) {
-      console.error('Error loading questions:', error);
-      Alert.alert('Error', 'Failed to load questions. Please try again.');
-    } finally {
-      setIsLoadingQuestions(false);
-    }
-  };
-
-  // Update useEffect to load questions
+  // Add useEffect to check submission status when time segments are loaded
   useEffect(() => {
-    if (uniqueCode) {
-      loadActiveQuestions();
-    }
-  }, [uniqueCode]);
-
-  const handleNumberChange = (questionId: number, value: string) => {
-    if (/^\d*$/.test(value)) {
-      setSelectedNumbers(prev => ({
-        ...prev,
-        [questionId]: value
-      }));
-    }
-  };
-
-  // Update useEffect to check for unique code instead of device ID
-  useEffect(() => {
-    checkUniqueCode();
-
-    // Set initial state based on URL params
-    if (notification === 'true') {
-      setIsNotificationResponse(true);
-    }
-
-    // Listen for notification responses
-    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data;
-      if (data && data.type === 'flashback_check') {
-        setIsNotificationResponse(true);
-      }
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, [notification]);
-
-  // Check for recent submission when uniqueCode changes
-  useEffect(() => {
-    if (uniqueCode) {
-      checkRecentSubmission();
-    }
-  }, [uniqueCode]);
-
-  // Add to existing useEffect
-  useEffect(() => {
-    if (uniqueCode) {
+    if (uniqueCode && timeSegments.length > 0) {
       checkSubmissionStatus();
     }
-  }, [uniqueCode]);
+  }, [uniqueCode, timeSegments]);
 
   // Update handleSubmit to refresh segment status after submission
   const handleSubmit = async () => {
@@ -376,7 +304,61 @@ export default function HomeScreen() {
     }
   };
 
-  // Update handleDeleteData to clear all data
+  // Add function to load active questions
+  const loadActiveQuestions = async () => {
+    try {
+      const activeQuestions = await api.getActiveQuestions();
+      setQuestions(activeQuestions);
+      // Initialize selected numbers with empty strings
+      const initialNumbers = activeQuestions.reduce((acc, q) => {
+        acc[q.id] = '';
+        return acc;
+      }, {} as { [key: number]: string });
+      setSelectedNumbers(initialNumbers);
+    } catch (error) {
+      console.error('Error loading questions:', error);
+      Alert.alert('Error', 'Failed to load questions. Please try again.');
+    } finally {
+      setIsLoadingQuestions(false);
+    }
+  };
+
+  // Update useEffect to load questions
+  useEffect(() => {
+    if (uniqueCode) {
+      loadActiveQuestions();
+    }
+  }, [uniqueCode]);
+
+  const handleNumberChange = (questionId: number, value: string) => {
+    if (/^\d*$/.test(value)) {
+      setSelectedNumbers(prev => ({
+        ...prev,
+        [questionId]: value
+      }));
+    }
+  };
+
+  // Update useEffect to check for unique code on app launch
+  useEffect(() => {
+    checkUniqueCode();
+  }, []);
+
+  // Remove the notification check from this useEffect since we'll handle it after unique code check
+  useEffect(() => {
+    if (uniqueCode) {
+      checkIfNeedsToAnswer();
+    }
+  }, [uniqueCode]);
+
+  // Add to existing useEffect
+  useEffect(() => {
+    if (uniqueCode) {
+      checkSubmissionStatus();
+    }
+  }, [uniqueCode]);
+
+  // Update handleDeleteData to clear all data and reset onboarding
   const handleDeleteData = async () => {
     if (!uniqueCode) return;
     
@@ -398,8 +380,6 @@ export default function HomeScreen() {
                 api.deleteData(uniqueCode),
                 api.deleteUniqueCode(uniqueCode),
                 uniqueCodeService.removeUniqueCode(),
-                // Clear all notifications
-                Notifications.cancelAllScheduledNotificationsAsync(),
                 // Clear AsyncStorage
                 AsyncStorage.clear()
               ]);
@@ -407,13 +387,17 @@ export default function HomeScreen() {
               // Reset all state
               setUniqueCode(null);
               setHasAccessCode(false);
+              setHasOnboarded(false); // Reset onboarding state
               setHasSubmittedToday(false);
               setSegmentStatus({});
               setSelectedNumbers({});
               setQuestions([]);
               setTimeSegments([]);
+              setHasConsented(false); // Reset consent state
+              setUserUniqueCode(''); // Reset unique code input
+              setUserUniqueCodeError(''); // Reset any error messages
               
-              Alert.alert('Success', 'All your data has been deleted.');
+              Alert.alert('Success', 'All your data has been deleted. You will need to register again to use the app.');
             } catch (error) {
               console.error('Error deleting data:', error);
               Alert.alert('Error', 'Failed to delete data. Please try again.');
@@ -518,6 +502,16 @@ export default function HomeScreen() {
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.menuItem}
+            onPress={async () => {
+              setIsMenuVisible(false);
+              await scheduleTestNotification();
+              Alert.alert('Success', 'Test notification scheduled for 11am');
+            }}
+          >
+            <Text style={styles.menuItemText}>Schedule Test Notification</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.menuItem}
             onPress={() => {
               setIsMenuVisible(false);
               handleDeleteData();
@@ -530,84 +524,51 @@ export default function HomeScreen() {
     </Modal>
   );
 
-  // Add notification scheduling function
-  const scheduleNotifications = async (segments: TimeSegment[]) => {
+  // Add function to check if user needs to answer questions
+  const checkIfNeedsToAnswer = async () => {
+    if (!uniqueCode) return;
+
     try {
-      // Cancel any existing notifications first
-      await Notifications.cancelAllScheduledNotificationsAsync();
-
-      // Request permissions if not already granted
-      const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
-      if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
+      const now = new Date();
+      const currentHour = now.getHours();
+      
+      // Determine current time segment (morning, afternoon, evening)
+      let segmentStart, segmentEnd;
+      if (currentHour >= 6 && currentHour < 12) {
+        // Morning segment (6am - 12pm)
+        segmentStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 6, 0, 0);
+        segmentEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
+      } else if (currentHour >= 12 && currentHour < 18) {
+        // Afternoon segment (12pm - 6pm)
+        segmentStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
+        segmentEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18, 0, 0);
+      } else {
+        // Evening segment (6pm - 6am next day)
+        segmentStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18, 0, 0);
+        segmentEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 6, 0, 0);
       }
-      if (finalStatus !== 'granted') {
-        Alert.alert('Permission Required', 'Please enable notifications to receive check-in reminders.');
-        return;
-      }
 
-      // Schedule a notification for each active time segment
-      for (const segment of segments) {
-        if (!segment.is_active) continue;
+      const data = await api.checkRecentSubmission(
+        uniqueCode.toString(),
+        segmentStart.toISOString(),
+        segmentEnd.toISOString()
+      );
 
-        const [hours, minutes] = segment.time.split(':').map(Number);
-        
-        // Calculate seconds until next notification
-        const now = new Date();
-        const scheduledTime = new Date(now);
-        scheduledTime.setHours(hours, minutes, 0, 0);
-        
-        // If the time has already passed today, schedule for tomorrow
-        if (scheduledTime <= now) {
-          scheduledTime.setDate(scheduledTime.getDate() + 1);
+      // If no submission found for current time segment, show questions
+      if (!data || data.length === 0) {
+        setHasSubmittedToday(false);
+        // Load questions if we're in the current time segment
+        if (currentHour >= 6 && currentHour < 24) {
+          loadActiveQuestions();
         }
-        
-        const secondsUntilNotification = Math.floor((scheduledTime.getTime() - now.getTime()) / 1000);
-        
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: "FlashTrack Check-in",
-            body: `Time for your ${segment.name} check-in`,
-            data: { type: 'flashback_check' },
-          },
-          trigger: {
-            seconds: secondsUntilNotification,
-            repeats: true,
-          } as Notifications.NotificationTriggerInput,
-        });
-
-        console.log(`Scheduled notification for ${segment.name} at ${hours}:${minutes}`);
+      } else {
+        setHasSubmittedToday(true);
       }
-
-      console.log('All notifications scheduled successfully');
     } catch (error) {
-      console.error('Error scheduling notifications:', error);
-      Alert.alert('Error', 'Failed to schedule notifications. Please try again.');
+      console.error('Error checking if needs to answer:', error);
+      setHasSubmittedToday(false);
     }
   };
-
-  // Update useEffect to schedule notifications when time segments are loaded
-  useEffect(() => {
-    if (timeSegments.length > 0) {
-      scheduleNotifications(timeSegments);
-    }
-  }, [timeSegments]);
-
-  // Add notification response handler
-  useEffect(() => {
-    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data;
-      if (data && data.type === 'flashback_check') {
-        setIsNotificationResponse(true);
-      }
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, []);
 
   // Modify the initial render condition
   if (isCheckingAccess) {
@@ -672,46 +633,48 @@ export default function HomeScreen() {
   if (hasAccessCode && !hasOnboarded) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.accessCodeContainer}>
-          <View style={styles.accessCodeTop}>
-            <Image 
-              source={require('../../assets/images/logo.png')} 
-              style={[styles.logo, { marginTop: 0 }]}
-              resizeMode="contain"
-            />
-            <Text style={[styles.welcomeText, { marginTop: 60 }]}>Create Your Unique Code</Text>
-            <Text style={styles.accessCodeLabel}>Please enter a unique 4-digit code for your participation:</Text>
-            <TextInput
-              style={[
-                styles.accessCodeInput,
-                { width: 200, marginBottom: 10 },
-                userUniqueCodeError ? styles.accessCodeInputError : null
-              ]}
-              value={userUniqueCode}
-              onChangeText={text => {
-                setUserUniqueCode(text.replace(/[^0-9]/g, '').slice(0, 4));
-                setUserUniqueCodeError('');
-              }}
-              keyboardType="numeric"
-              maxLength={4}
-              textAlign="center"
-              placeholder="0000"
-              placeholderTextColor="#888888"
-            />
-            <Text style={{ color: '#4FC3F7', fontSize: 13, marginBottom: 20, textAlign: 'center' }}>
-              Don't worry, you don't need to remember this code.
-            </Text>
-            {userUniqueCodeError ? <Text style={{ color: '#FF3B30', marginTop: 10 }}>{userUniqueCodeError}</Text> : null}
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.accessCodeContainer}>
+            <View style={styles.accessCodeTop}>
+              <Image 
+                source={require('../../assets/images/logo.png')} 
+                style={[styles.logo, { marginTop: 0 }]}
+                resizeMode="contain"
+              />
+              <Text style={[styles.welcomeText, { marginTop: 60 }]}>Create Your Unique Code</Text>
+              <Text style={styles.accessCodeLabel}>Please enter a unique 4-digit code for your participation:</Text>
+              <TextInput
+                style={[
+                  styles.accessCodeInput,
+                  { width: 200, marginBottom: 10 },
+                  userUniqueCodeError ? styles.accessCodeInputError : null
+                ]}
+                value={userUniqueCode}
+                onChangeText={text => {
+                  setUserUniqueCode(text.replace(/[^0-9]/g, '').slice(0, 4));
+                  setUserUniqueCodeError('');
+                }}
+                keyboardType="numeric"
+                maxLength={4}
+                textAlign="center"
+                placeholder="0000"
+                placeholderTextColor="#888888"
+              />
+              <Text style={{ color: '#4FC3F7', fontSize: 13, marginBottom: 20, textAlign: 'center' }}>
+                Don't worry, you don't need to remember this code.
+              </Text>
+              {userUniqueCodeError ? <Text style={{ color: '#FF3B30', marginTop: 10 }}>{userUniqueCodeError}</Text> : null}
+            </View>
+            <View style={styles.accessCodeBottom}>
+              <TouchableOpacity 
+                style={styles.accessCodeButton}
+                onPress={handleUserUniqueCodeSubmit}
+              >
+                <Text style={styles.accessCodeButtonText}>Continue</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-          <View style={styles.accessCodeBottom}>
-            <TouchableOpacity 
-              style={styles.accessCodeButton}
-              onPress={handleUserUniqueCodeSubmit}
-            >
-              <Text style={styles.accessCodeButtonText}>Continue</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        </TouchableWithoutFeedback>
       </SafeAreaView>
     );
   }
