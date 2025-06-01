@@ -240,4 +240,22 @@ export const api = {
       throw error;
     }
   },
+
+  async getUserStartDate(uniqueCode: string): Promise<string | null> {
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/unique_codes?unique_code=eq.${uniqueCode}&select=created_at`,
+        { headers }
+      );
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(`Failed to get user start date: ${response.status} ${response.statusText} ${JSON.stringify(errorData)}`);
+      }
+      const data = await response.json();
+      return data[0]?.created_at || null;
+    } catch (error) {
+      console.error('API Error (getUserStartDate):', error);
+      throw error;
+    }
+  },
 }; 

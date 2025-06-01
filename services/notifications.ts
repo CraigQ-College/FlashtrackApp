@@ -76,19 +76,19 @@ export const scheduleDailyNotifications = async () => {
     const notifications = [
       {
         title: 'Morning Check-in',
-        body: 'Time for your morning flashback check-in',
+        body: 'Time to track your flashbacks',
         hour: 7,
         minute: 0
       },
       {
         title: 'Afternoon Check-in',
-        body: 'Time for your afternoon flashback check-in',
+        body: 'Time to track your flashbacks',
         hour: 13,
         minute: 0
       },
       {
         title: 'Evening Check-in',
-        body: 'Time for your evening flashback check-in',
+        body: 'Time to track your flashbacks',
         hour: 19,
         minute: 0
       }
@@ -101,35 +101,6 @@ export const scheduleDailyNotifications = async () => {
     console.log('Daily notifications scheduled successfully');
   } catch (error) {
     console.error('Error scheduling notifications:', error);
-  }
-};
-
-// Add function to schedule a test notification
-export const scheduleTestNotification = async () => {
-  try {
-    // Get current time
-    const now = new Date();
-    
-    // Set notification time to 11am today
-    const notificationTime = new Date(now);
-    notificationTime.setHours(11, 0, 0, 0);
-    
-    // If it's already past 11am, schedule for tomorrow
-    if (now > notificationTime) {
-      notificationTime.setDate(notificationTime.getDate() + 1);
-    }
-
-    // Schedule the test notification
-    await scheduleNotification({
-      title: 'Test Notification',
-      body: 'This is a test notification for 11am',
-      hour: 11,
-      minute: 0
-    });
-
-    console.log('Test notification scheduled for 11am');
-  } catch (error) {
-    console.error('Error scheduling test notification:', error);
   }
 };
 

@@ -6,7 +6,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { uniqueCodeService } from '../../services/uniqueCode';
-import { scheduleDailyNotifications, scheduleTestNotification } from '../../services/notifications';
+import { scheduleDailyNotifications } from '../../services/notifications';
 
 interface FlashbackResponse {
   created_at: string;
@@ -42,6 +42,34 @@ const TimeSegmentComponent = ({ name, time, isCompleted }: {
   );
 };
 
+// Update ProgressBar component
+const ProgressBar = ({ currentDay }: { currentDay: number }) => {
+  return (
+    <View style={styles.progressContainer}>
+      <Text style={styles.dayCounterText}>Day {currentDay} of 7</Text>
+      <View style={styles.progressBar}>
+        {[...Array(7)].map((_, index) => (
+          <View key={index} style={styles.progressDayContainer}>
+            <View 
+              style={[
+                styles.progressDay,
+                index < currentDay - 1 ? styles.progressDayCompleted : 
+                index === currentDay - 1 ? styles.progressDayCurrent :
+                styles.progressDayPending
+              ]} 
+            >
+              {index < currentDay - 1 && (
+                <MaterialIcons name="check-circle" size={24} color="#4CAF50" />
+              )}
+            </View>
+            <Text style={styles.progressDayText}>Day {index + 1}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+};
+
 export default function HomeScreen() {
   const [selectedNumbers, setSelectedNumbers] = useState<{ [key: number]: string }>({});
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -64,6 +92,7 @@ export default function HomeScreen() {
   const [hasOnboarded, setHasOnboarded] = useState(false);
   const [userUniqueCode, setUserUniqueCode] = useState('');
   const [userUniqueCodeError, setUserUniqueCodeError] = useState('');
+  const [currentDay, setCurrentDay] = useState(1);
 
   const CORRECT_ACCESS_CODE = '2345'; // Changed from 1234 to 2345
 
@@ -103,7 +132,7 @@ export default function HomeScreen() {
     }
   };
 
-  // Update handleUserUniqueCodeSubmit to schedule notifications after onboarding
+  // Update handleUserUniqueCodeSubmit to include consent
   const handleUserUniqueCodeSubmit = async () => {
     if (!userUniqueCode || userUniqueCode.length < 4) {
       setUserUniqueCodeError('Please enter a 4-digit code.');
@@ -119,6 +148,7 @@ export default function HomeScreen() {
       await uniqueCodeService.storeUniqueCode(userUniqueCode);
       setUniqueCode(userUniqueCode);
       setHasOnboarded(true);
+      setHasConsented(true); // Set consent when unique code is created
       setUserUniqueCodeError('');
       
       // Schedule notifications after successful unique code registration
@@ -200,7 +230,7 @@ export default function HomeScreen() {
     }
   }, [uniqueCode]);
 
-  // Update checkSubmissionStatus to use dynamic segments
+  // Update checkSubmissionStatus to properly check responses against time segments
   const checkSubmissionStatus = async () => {
     if (!uniqueCode) return;
 
@@ -208,6 +238,7 @@ export default function HomeScreen() {
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       
+      // Get all responses for today
       const data = await api.checkSubmissionStatus(
         uniqueCode,
         today.toISOString()
@@ -502,16 +533,6 @@ export default function HomeScreen() {
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.menuItem}
-            onPress={async () => {
-              setIsMenuVisible(false);
-              await scheduleTestNotification();
-              Alert.alert('Success', 'Test notification scheduled for 11am');
-            }}
-          >
-            <Text style={styles.menuItemText}>Schedule Test Notification</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.menuItem}
             onPress={() => {
               setIsMenuVisible(false);
               handleDeleteData();
@@ -569,6 +590,35 @@ export default function HomeScreen() {
       setHasSubmittedToday(false);
     }
   };
+
+  // Add function to calculate current day
+  const calculateCurrentDay = async () => {
+    if (!uniqueCode) return;
+    
+    try {
+      const startDate = await api.getUserStartDate(uniqueCode);
+      if (!startDate) return;
+
+      const start = new Date(startDate);
+      const now = new Date();
+      
+      // Calculate days difference
+      const diffTime = Math.abs(now.getTime() - start.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      // Set current day (max 7)
+      setCurrentDay(Math.min(diffDays + 1, 7));
+    } catch (error) {
+      console.error('Error calculating current day:', error);
+    }
+  };
+
+  // Add useEffect to calculate current day when unique code is available
+  useEffect(() => {
+    if (uniqueCode) {
+      calculateCurrentDay();
+    }
+  }, [uniqueCode]);
 
   // Modify the initial render condition
   if (isCheckingAccess) {
@@ -679,42 +729,6 @@ export default function HomeScreen() {
     );
   }
 
-  if (!hasConsented) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <ScrollView contentContainerStyle={styles.consentContainer}>
-          <Image 
-            source={require('../../assets/images/logo.png')} 
-            style={[styles.logo, { marginTop: 5 }]}
-            resizeMode="contain"
-          />
-          <View style={styles.consentBox}>
-            <Text style={styles.consentTitle}>Research Study Consent</Text>
-            <Text style={styles.consentText}>
-              This application is part of a PhD research project in Psychology. By continuing, you agree to:
-              {'\n\n'}
-              • Participate voluntarily in this research study
-              {'\n'}
-              • Allow the collection of your device ID, flashback count responses, and timestamps
-              {'\n'}
-              • Understand that your data will be used exclusively for academic research
-              {'\n'}
-              • Know that you can withdraw at any time by deleting your data
-              {'\n\n'}
-              Your data will be anonymized and will not be shared with third parties.
-            </Text>
-            <TouchableOpacity 
-              style={styles.consentButton}
-              onPress={handleConsent}
-            >
-              <Text style={styles.consentButtonText}>I Agree to Participate</Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
-
   // If user hasn't submitted for current segment, show the form
   if (!hasSubmittedToday) {
     return (
@@ -773,11 +787,6 @@ export default function HomeScreen() {
                   {isSubmitting ? 'Submitting...' : 'Submit'}
                 </Text>
               </TouchableOpacity>
-              <Image 
-                source={require('../../assets/images/conductor.png')} 
-                style={styles.conductorImage}
-                resizeMode="contain"
-              />
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
@@ -800,7 +809,11 @@ export default function HomeScreen() {
       </TouchableOpacity>
       <MenuModal />
       <PrivacyPolicyModal />
-      <View style={styles.mainContainer}>
+      <ScrollView 
+        style={styles.mainContainer}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.contentContainer}>
           <Image 
             source={require('../../assets/images/logo.png')} 
@@ -823,13 +836,16 @@ export default function HomeScreen() {
               />
             ))}
           </View>
+          <View style={styles.progressSection}>
+            <ProgressBar currentDay={currentDay} />
+          </View>
           <Image 
             source={require('../../assets/images/conductor.png')} 
             style={styles.conductorImage}
             resizeMode="contain"
           />
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -845,199 +861,139 @@ const styles = StyleSheet.create({
   mainContainer: {
     flex: 1,
     backgroundColor: '#000000',
-    paddingTop: 5,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   contentContainer: {
-    flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
+    padding: 15,
   },
   logo: {
-    width: 250,
-    height: 250,
-    marginTop: -100,
+    width: 200,
+    height: 200,
+    marginTop: -40,
     marginBottom: -30,
     alignSelf: 'center',
   },
   messageContainer: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    padding: 20,
+    padding: 15,
     borderRadius: 10,
     width: '100%',
-    maxWidth: 300,
+    maxWidth: 280,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
-    marginBottom: 20,
+    marginBottom: 15,
   },
   welcomeText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: 'bold',
     color: '#FFFFFF',
     textAlign: 'center',
   },
   trackerTitle: {
     color: '#4FC3F7',
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 25,
+    marginBottom: 20,
   },
   timeSegmentsContainer: {
     flexDirection: 'row',
-    flexWrap: 'wrap', // Allow wrapping for more than 3 segments
+    flexWrap: 'wrap',
     justifyContent: 'center',
     width: '100%',
     paddingHorizontal: 20,
     marginBottom: 20,
-    gap: 10, // Add gap between segments
+    gap: 10,
   },
   timeSegment: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    padding: 15,
+    padding: 12,
     borderRadius: 10,
     alignItems: 'center',
-    minWidth: '30%', // Minimum width for each segment
-    flex: 1, // Allow segments to grow
-    maxWidth: '45%', // Maximum width for each segment
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  conductorImage: {
-    width: 200,
-    height: 150,
-  },
-  accessCodeContainer: {
+    minWidth: '30%',
     flex: 1,
-    backgroundColor: '#000000',
-  },
-  accessCodeTop: {
-    alignItems: 'center',
-    paddingTop: 40,
-  },
-  accessCodeCenter: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  accessCodeBottom: {
-    paddingBottom: 40,
-    alignItems: 'center',
-  },
-  accessCodeLabel: {
-    fontSize: 18,
-    color: '#FFFFFF',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  accessCodeInputs: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 30,
-  },
-  accessCodeInput: {
-    width: 50,
-    height: 50,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 10,
-    marginHorizontal: 10,
-    color: '#FFFFFF',
-    fontSize: 24,
-    textAlign: 'center',
+    maxWidth: '45%',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },
-  accessCodeInputError: {
-    borderColor: '#FF3B30',
-    borderWidth: 2,
-  },
-  accessCodeButton: {
-    backgroundColor: '#007AFF',
-    padding: 15,
-    borderRadius: 10,
-    width: 200,
-    alignItems: 'center',
-  },
-  accessCodeButtonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  picker: {
-    width: 200,
-    height: 150,
-    backgroundColor: '#FFFFFF',
-  },
-  button: {
-    backgroundColor: '#007AFF',
-    padding: 15,
-    borderRadius: 10,
-    marginTop: 20,
-  },
-  buttonDisabled: {
-    backgroundColor: '#CCCCCC',
-  },
-  buttonText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  privacyLink: {
-    position: 'absolute',
-    bottom: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    padding: 10,
-    borderRadius: 5,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  privacyText: {
+  periodText: {
     color: '#FFFFFF',
     fontSize: 14,
-    textDecorationLine: 'underline',
+    fontWeight: 'bold',
+    marginTop: 6,
   },
-  consentContainer: {
-    flexGrow: 1,
-    alignItems: 'center',
-    padding: 20,
+  timeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    marginVertical: 6,
   },
-  consentBox: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    padding: 20,
-    borderRadius: 10,
+  emptyCheck: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  progressContainer: {
     width: '100%',
-    maxWidth: 400,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    marginTop: 20,
+    paddingHorizontal: 20,
+    marginTop: 30,
+    marginBottom: 15,
   },
-  consentTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  consentText: {
-    fontSize: 16,
-    color: '#FFFFFF',
-    lineHeight: 24,
-    marginBottom: 20,
-  },
-  consentButton: {
-    backgroundColor: '#007AFF',
-    padding: 15,
-    borderRadius: 10,
+  progressBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 10,
   },
-  consentButtonText: {
-    color: 'white',
-    fontSize: 18,
+  progressDayContainer: {
+    alignItems: 'center',
+    minWidth: 45,
+  },
+  progressDay: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  progressDayCompleted: {
+    borderColor: '#4CAF50',
+    backgroundColor: 'transparent',
+  },
+  progressDayCurrent: {
+    borderColor: '#4FC3F7',
+    backgroundColor: 'transparent',
+  },
+  progressDayPending: {
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: 'transparent',
+  },
+  progressDayText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    marginTop: 4,
+  },
+  dayCounterText: {
+    color: '#4FC3F7',
+    fontSize: 16,
     fontWeight: 'bold',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  conductorImage: {
+    width: 180,
+    height: 135,
+    marginTop: 0,
+    marginBottom: 5,
   },
   menuButton: {
     position: 'absolute',
-    top: 60,
+    top: Platform.OS === 'ios' ? 50 : 30,
     right: 20,
     zIndex: 1,
     padding: 8,
@@ -1135,7 +1091,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   question: {
-    fontSize: 18, // Reduced from default
+    fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 10,
     textAlign: 'center',
@@ -1157,31 +1113,113 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 20,
   },
-  periodText: {
-    color: '#FFFFFF',
-    fontSize: 16,
+  button: {
+    backgroundColor: '#007AFF',
+    padding: 15,
+    borderRadius: 10,
+    marginTop: 20,
+  },
+  buttonDisabled: {
+    backgroundColor: '#CCCCCC',
+  },
+  buttonText: {
+    color: 'white',
+    fontSize: 18,
     fontWeight: 'bold',
-    marginTop: 8,
   },
-  timeText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    marginVertical: 8,
-  },
-  emptyCheck: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  accessCodeContainerCentered: {
+  accessCodeContainer: {
     flex: 1,
     backgroundColor: '#000000',
-    justifyContent: 'center',
   },
-  accessCodeTopCentered: {
+  accessCodeTop: {
     alignItems: 'center',
-    paddingTop: 0,
+    paddingTop: 40,
+  },
+  accessCodeBottom: {
+    paddingBottom: 40,
+    alignItems: 'center',
+  },
+  accessCodeLabel: {
+    fontSize: 18,
+    color: '#FFFFFF',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  accessCodeInputs: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginBottom: 30,
+  },
+  accessCodeInput: {
+    width: 50,
+    height: 50,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 10,
+    marginHorizontal: 10,
+    color: '#FFFFFF',
+    fontSize: 24,
+    textAlign: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  accessCodeInputError: {
+    borderColor: '#FF3B30',
+    borderWidth: 2,
+  },
+  accessCodeButton: {
+    backgroundColor: '#007AFF',
+    padding: 15,
+    borderRadius: 10,
+    width: 200,
+    alignItems: 'center',
+  },
+  accessCodeButtonText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  consentContainer: {
+    flexGrow: 1,
+    alignItems: 'center',
+    padding: 20,
+  },
+  consentBox: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    padding: 20,
+    borderRadius: 10,
+    width: '100%',
+    maxWidth: 400,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    marginTop: 20,
+  },
+  consentTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  consentText: {
+    fontSize: 16,
+    color: '#FFFFFF',
+    lineHeight: 24,
+    marginBottom: 20,
+  },
+  consentButton: {
+    backgroundColor: '#007AFF',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  consentButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  progressSection: {
+    marginTop: 30,
+    marginBottom: 15,
   },
 });
