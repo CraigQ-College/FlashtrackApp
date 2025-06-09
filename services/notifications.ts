@@ -110,11 +110,17 @@ export async function cancelAllNotifications() {
 
 // Add notification response handler
 export function setupNotificationResponseHandler(router: any) {
-  return Notifications.addNotificationResponseReceivedListener(() => {
-    // Navigate to the questions screen
+  return Notifications.addNotificationResponseReceivedListener((response) => {
+    const notification = response.notification;
+    const title = notification.request.content.title;
+    
+    // Navigate to the home screen with notification info
     router.push({
       pathname: '/(tabs)',
-      params: { notification: true }
+      params: { 
+        notification: true,
+        notificationType: title // Pass the notification type (Morning/Afternoon/Evening)
+      }
     });
   });
 }

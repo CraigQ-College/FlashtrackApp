@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Alert, Image, SafeAreaView, Linking, TextInput, ScrollView, Modal, BackHandler, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api, Question, TimeSegment } from '../../services/api';
@@ -7,6 +7,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { uniqueCodeService } from '../../services/uniqueCode';
 import { scheduleDailyNotifications } from '../../services/notifications';
+import EndOfStudyQuestionnaire from './EndOfStudyQuestionnaire';
 
 interface FlashbackResponse {
   created_at: string;
@@ -70,6 +71,25 @@ const ProgressBar = ({ currentDay }: { currentDay: number }) => {
   );
 };
 
+// Update CompletionCard component
+const CompletionCard = ({ onStartQuestionnaire }: { onStartQuestionnaire: () => void }) => {
+  return (
+    <View style={styles.completionCard}>
+      <Text style={styles.completionTitle}>Study Completion</Text>
+      <MaterialIcons name="check-circle" size={80} color="#4CAF50" style={styles.completionCheck} />
+      <Text style={styles.completionText}>
+        Thank you for providing your personal feedback over the past 7 days. All feedback is greatly appreciated and contributes valuably to the overall study.
+      </Text>
+      <TouchableOpacity 
+        style={styles.completionButton}
+        onPress={onStartQuestionnaire}
+      >
+        <Text style={styles.completionButtonText}>Start End of Study Questionnaire</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+
 export default function HomeScreen() {
   const [selectedNumbers, setSelectedNumbers] = useState<{ [key: number]: string }>({});
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -81,7 +101,7 @@ export default function HomeScreen() {
   const [hasAccessCode, setHasAccessCode] = useState(false);
   const [accessCode, setAccessCode] = useState(['', '', '', '']);
   const [accessCodeError, setAccessCodeError] = useState(false);
-  const { notification } = useLocalSearchParams();
+  const { notification, notificationType } = useLocalSearchParams();
   const router = useRouter();
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [isPrivacyPolicyVisible, setIsPrivacyPolicyVisible] = useState(false);
@@ -93,6 +113,7 @@ export default function HomeScreen() {
   const [userUniqueCode, setUserUniqueCode] = useState('');
   const [userUniqueCodeError, setUserUniqueCodeError] = useState('');
   const [currentDay, setCurrentDay] = useState(1);
+  const [studyCompleted, setStudyCompleted] = useState(false);
 
   const CORRECT_ACCESS_CODE = '2345'; // Changed from 1234 to 2345
 
@@ -101,6 +122,7 @@ export default function HomeScreen() {
     try {
       const code = await uniqueCodeService.getUniqueCode();
       if (code) {
+        console.log('Existing user:', code); // Debug log
         setUniqueCode(code);
         setHasAccessCode(true);
         setHasOnboarded(true);
@@ -182,19 +204,19 @@ export default function HomeScreen() {
     try {
       const now = new Date();
       const currentHour = now.getHours();
-      
+      let segment = '';
       // Determine current time segment (morning, afternoon, evening)
       let segmentStart, segmentEnd;
       if (currentHour >= 6 && currentHour < 12) {
-        // Morning segment (6am - 12pm)
+        segment = 'morning';
         segmentStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 6, 0, 0);
         segmentEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
       } else if (currentHour >= 12 && currentHour < 18) {
-        // Afternoon segment (12pm - 6pm)
+        segment = 'afternoon';
         segmentStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
         segmentEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18, 0, 0);
       } else {
-        // Evening segment (6pm - 6am next day)
+        segment = 'evening';
         segmentStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18, 0, 0);
         segmentEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 6, 0, 0);
       }
@@ -205,10 +227,19 @@ export default function HomeScreen() {
         segmentEnd.toISOString()
       );
 
-      setHasSubmittedToday(!!data && data.length > 0);
+      const hasSubmitted = !!data && data.length > 0;
+      setHasSubmittedToday(hasSubmitted);
+      // Debug logs
+      console.log('Current check in:', segment);
+      console.log('Answers', hasSubmitted ? 'submitted' : 'pending');
+      console.log(`Current day: ${currentDay} of 7`);
+      
+      // If they haven't submitted and we're in a valid time window, load questions
+      if (!hasSubmitted && currentHour >= 6 && currentHour < 24) {
+        loadActiveQuestions();
+      }
     } catch (error) {
       console.error('Error checking recent submission:', error);
-      // Default to showing the form if there's an error
       setHasSubmittedToday(false);
     }
   };
@@ -375,17 +406,18 @@ export default function HomeScreen() {
     checkUniqueCode();
   }, []);
 
-  // Remove the notification check from this useEffect since we'll handle it after unique code check
+  // Add useEffect to handle notification navigation
   useEffect(() => {
-    if (uniqueCode) {
+    if (notification === 'true' && uniqueCode) {
+      // When notification is tapped, check if user needs to answer
       checkIfNeedsToAnswer();
     }
-  }, [uniqueCode]);
+  }, [notification, uniqueCode]);
 
-  // Add to existing useEffect
+  // Add useEffect to check submission status on app load and when unique code changes
   useEffect(() => {
     if (uniqueCode) {
-      checkSubmissionStatus();
+      checkRecentSubmission();
     }
   }, [uniqueCode]);
 
@@ -545,7 +577,7 @@ export default function HomeScreen() {
     </Modal>
   );
 
-  // Add function to check if user needs to answer questions
+  // Update checkIfNeedsToAnswer to be more precise
   const checkIfNeedsToAnswer = async () => {
     if (!uniqueCode) return;
 
@@ -553,13 +585,13 @@ export default function HomeScreen() {
       const now = new Date();
       const currentHour = now.getHours();
       
-      // Determine current time segment (morning, afternoon, evening)
+      // Determine current time segment based on notification type or current time
       let segmentStart, segmentEnd;
-      if (currentHour >= 6 && currentHour < 12) {
+      if (notificationType === 'Morning Check-in' || (currentHour >= 6 && currentHour < 12)) {
         // Morning segment (6am - 12pm)
         segmentStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 6, 0, 0);
         segmentEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
-      } else if (currentHour >= 12 && currentHour < 18) {
+      } else if (notificationType === 'Afternoon Check-in' || (currentHour >= 12 && currentHour < 18)) {
         // Afternoon segment (12pm - 6pm)
         segmentStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
         segmentEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18, 0, 0);
@@ -575,15 +607,12 @@ export default function HomeScreen() {
         segmentEnd.toISOString()
       );
 
-      // If no submission found for current time segment, show questions
-      if (!data || data.length === 0) {
-        setHasSubmittedToday(false);
-        // Load questions if we're in the current time segment
-        if (currentHour >= 6 && currentHour < 24) {
-          loadActiveQuestions();
-        }
-      } else {
-        setHasSubmittedToday(true);
+      const hasSubmitted = !!data && data.length > 0;
+      setHasSubmittedToday(hasSubmitted);
+
+      // If they haven't submitted and we're in a valid time window, load questions
+      if (!hasSubmitted && currentHour >= 6 && currentHour < 24) {
+        loadActiveQuestions();
       }
     } catch (error) {
       console.error('Error checking if needs to answer:', error);
@@ -602,12 +631,17 @@ export default function HomeScreen() {
       const start = new Date(startDate);
       const now = new Date();
       
-      // Calculate days difference
-      const diffTime = Math.abs(now.getTime() - start.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      // Set both dates to midnight for accurate day calculation
+      start.setHours(0, 0, 0, 0);
+      now.setHours(0, 0, 0, 0);
       
-      // Set current day (max 7)
-      setCurrentDay(Math.min(diffDays + 1, 7));
+      // Calculate days difference (now - start)
+      const diffTime = now.getTime() - start.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      
+      // Set current day (max 7, min 1)
+      const day = Math.min(Math.max(diffDays + 1, 1), 7);
+      setCurrentDay(day);
     } catch (error) {
       console.error('Error calculating current day:', error);
     }
@@ -619,6 +653,45 @@ export default function HomeScreen() {
       calculateCurrentDay();
     }
   }, [uniqueCode]);
+
+  // Add function to check if study is completed
+  const isStudyCompleted = async () => {
+    if (!uniqueCode || currentDay !== 7) return false;
+
+    try {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      
+      // Set the start time to 7pm today
+      const startTime = new Date(today);
+      startTime.setHours(19, 0, 0, 0);
+      
+      // Set the end time to 6am tomorrow (to cover the evening segment)
+      const endTime = new Date(today);
+      endTime.setDate(endTime.getDate() + 1);
+      endTime.setHours(6, 0, 0, 0);
+
+      const data = await api.checkRecentSubmission(
+        uniqueCode.toString(),
+        startTime.toISOString(),
+        endTime.toISOString()
+      );
+
+      return !!data && data.length > 0;
+    } catch (error) {
+      console.error('Error checking study completion:', error);
+      return false;
+    }
+  };
+
+  // Add useEffect to check study completion status
+  useEffect(() => {
+    if (uniqueCode && currentDay === 7) {
+      isStudyCompleted().then(completed => {
+        setStudyCompleted(completed);
+      });
+    }
+  }, [uniqueCode, currentDay, segmentStatus]);
 
   // Modify the initial render condition
   if (isCheckingAccess) {
@@ -822,23 +895,35 @@ export default function HomeScreen() {
           />
           <View style={styles.messageContainer}>
             <Text style={styles.welcomeText}>
-              Hope you're having a good day. Please come back once you receive your next notification. Thanks
+              {studyCompleted 
+                ? "Thank you for completing the study! Please proceed with the end of study questionnaire."
+                : "Hope you're having a good day. Please come back once you receive your next notification. Thanks"}
             </Text>
           </View>
-          <Text style={styles.trackerTitle}>Check-in Tracker</Text>
-          <View style={styles.timeSegmentsContainer}>
-            {timeSegments.map((segment) => (
-              <TimeSegmentComponent 
-                key={segment.id}
-                name={segment.name}
-                time={segment.time}
-                isCompleted={segmentStatus[segment.id] || false}
-              />
-            ))}
-          </View>
-          <View style={styles.progressSection}>
-            <ProgressBar currentDay={currentDay} />
-          </View>
+          {studyCompleted ? (
+            <CompletionCard 
+              onStartQuestionnaire={() => {
+                router.push('/EndOfStudyQuestionnaire');
+              }}
+            />
+          ) : (
+            <>
+              <Text style={styles.trackerTitle}>Check-in Tracker</Text>
+              <View style={styles.timeSegmentsContainer}>
+                {timeSegments.map((segment) => (
+                  <TimeSegmentComponent 
+                    key={segment.id}
+                    name={segment.name}
+                    time={segment.time}
+                    isCompleted={segmentStatus[segment.id] || false}
+                  />
+                ))}
+              </View>
+              <View style={styles.progressSection}>
+                <ProgressBar currentDay={currentDay} />
+              </View>
+            </>
+          )}
           <Image 
             source={require('../../assets/images/conductor.png')} 
             style={styles.conductorImage}
@@ -1221,5 +1306,48 @@ const styles = StyleSheet.create({
   progressSection: {
     marginTop: 30,
     marginBottom: 15,
+  },
+  completionCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    padding: 20,
+    borderRadius: 10,
+    width: '100%',
+    maxWidth: 280,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  completionTitle: {
+    color: '#4FC3F7',
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  completionCheck: {
+    marginBottom: 15,
+  },
+  completionText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  completionButton: {
+    backgroundColor: '#007AFF',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  completionButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
 });

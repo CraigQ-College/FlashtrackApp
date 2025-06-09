@@ -258,4 +258,60 @@ export const api = {
       throw error;
     }
   },
+
+  async getEndOfStudyQuestions() {
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/end_of_study?is_active=eq.TRUE&order=question_no.asc`,
+        { headers }
+      );
+      if (!response.ok) {
+        throw new Error('Failed to fetch end of study questions');
+      }
+      return response.json();
+    } catch (error) {
+      console.error('API Error (getEndOfStudyQuestions):', error);
+      throw error;
+    }
+  },
+
+  async submitEndOfStudyResponse(responseData: Record<string, string>) {
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/eos_responses`,
+        {
+          method: 'POST',
+          headers: {
+            ...headers,
+            'Prefer': 'return=representation'
+          },
+          body: JSON.stringify(responseData)
+        }
+      );
+      if (!response.ok) {
+        throw new Error('Failed to submit end of study response');
+      }
+      return response.json();
+    } catch (error) {
+      console.error('API Error (submitEndOfStudyResponse):', error);
+      throw error;
+    }
+  },
+
+  async hasEndOfStudyResponse(uniqueCode: string): Promise<boolean> {
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/eos_responses?unique_code=eq.${uniqueCode}`,
+        { headers }
+      );
+      if (!response.ok) {
+        throw new Error('Failed to check end of study response');
+      }
+      const data = await response.json();
+      return data.length > 0;
+    } catch (error) {
+      console.error('API Error (hasEndOfStudyResponse):', error);
+      throw error;
+    }
+  },
 }; 
